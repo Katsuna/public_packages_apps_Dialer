@@ -102,6 +102,9 @@
   <uses-permission android:name="com.oppo.launcher.permission.READ_SETTINGS"/>
   <uses-permission android:name="com.oppo.launcher.permission.WRITE_SETTINGS"/>
 
+  <!-- katsuna profile reading permission -->
+  <uses-permission android:name="com.katsuna.services.datastore.permission.preferences" />
+
   <application
     android:hardwareAccelerated="true"
     android:icon="@mipmap/ic_launcher_phone"
