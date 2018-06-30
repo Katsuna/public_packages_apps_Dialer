@@ -84,6 +84,10 @@ import com.android.incallui.ringtone.DialerRingtoneManager;
 import com.android.incallui.ringtone.InCallTonePlayer;
 import com.android.incallui.ringtone.ToneGeneratorFactory;
 import com.android.incallui.videotech.utils.SessionModificationState;
+import com.katsuna.commons.entities.UserProfile;
+import com.katsuna.commons.utils.NotificationRemoteViewBuilder;
+import com.katsuna.commons.utils.ProfileReader;
+
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -227,6 +231,8 @@ public class StatusBarNotifier
     mCurrentNotification = NOTIFICATION_NONE;
   }
 
+  private boolean answerIntentSent;
+
   /**
    * Helper method for updateInCallNotification() and updateNotification(): Update the phone app's
    * status bar notification based on the current telephony state, or cancels the notification if
@@ -239,10 +245,25 @@ public class StatusBarNotifier
     final DialerCall call = getCallToShow(callList);
 
     if (call != null) {
+      if (call.getState() == DialerCall.State.INCOMING) {
+        if (!answerIntentSent) {
+          answerIntentSent = true;
+          sendAnswerIntent();
+        }
+      } else {
+        answerIntentSent = false;
+      }
       showNotification(callList, call);
     } else {
+      answerIntentSent = false;
       cancelNotification();
     }
+  }
+
+  private void sendAnswerIntent() {
+    Log.d(this, "sendAnswerIntent");
+    InCallPresenter.getInstance()
+            .showInCall(false /* showDialpad */, false /* newOutgoingCall */);
   }
 
   @RequiresPermission(Manifest.permission.READ_PHONE_STATE)
@@ -407,14 +428,17 @@ public class StatusBarNotifier
     builder.setLargeIcon(largeIcon);
     builder.setColor(
         mContext.getResources().getColor(R.color.dialer_theme_color, mContext.getTheme()));
+    NotificationRemoteViewBuilder rvBuilder= getCallNotificationView(contentTitle, content);
+    rvBuilder.setBitmap(largeIcon);
 
     if (isVideoUpgradeRequest) {
       builder.setUsesChronometer(false);
-      addDismissUpgradeRequestAction(builder);
-      addAcceptUpgradeRequestAction(builder);
+      addDismissUpgradeRequestAction(rvBuilder);
+      addAcceptUpgradeRequestAction(rvBuilder);
     } else {
-      createIncomingCallNotification(call, callState, builder);
+      createIncomingCallNotification(call, callState, builder, rvBuilder);
     }
+    builder.setCustomBigContentView(rvBuilder.build());
 
     addPersonReference(builder, contactInfo, call);
 
@@ -461,6 +485,18 @@ public class StatusBarNotifier
     mCurrentNotification = notificationType;
   }
 
+  private NotificationRemoteViewBuilder getCallNotificationView(String title, String description) {
+    UserProfile profile = ProfileReader.getUserProfileFromKatsunaServices(mContext);
+    NotificationRemoteViewBuilder builder =
+            new NotificationRemoteViewBuilder(mContext, profile,
+                    R.layout.common_notification_remote_view,
+                    R.layout.common_notification_remote_view_lh);
+    builder.setTitle(title);
+    builder.setDescription(description);
+
+    return builder;
+  }
+
   @Nullable
   @RequiresPermission(Manifest.permission.READ_PHONE_STATE)
   private PhoneAccountHandle getAnyPhoneAccount() {
@@ -477,20 +513,21 @@ public class StatusBarNotifier
   }
 
   private void createIncomingCallNotification(
-      DialerCall call, int state, Notification.Builder builder) {
+      DialerCall call, int state, Notification.Builder builder,
+      NotificationRemoteViewBuilder rvBuilder) {
     setNotificationWhen(call, state, builder);
 
     // Add hang up option for any active calls (active | onhold), outgoing calls (dialing).
     if (state == DialerCall.State.ACTIVE
         || state == DialerCall.State.ONHOLD
         || DialerCall.State.isDialing(state)) {
-      addHangupAction(builder);
+      addHangupAction(rvBuilder);
     } else if (state == DialerCall.State.INCOMING || state == DialerCall.State.CALL_WAITING) {
-      addDismissAction(builder);
+      addDismissAction(rvBuilder);
       if (call.isVideoCall()) {
-        addVideoCallAction(builder);
+        addVideoCallAction(rvBuilder);
       } else {
-        addAnswerAction(builder);
+        addAnswerAction(rvBuilder);
       }
     }
   }
@@ -827,94 +864,64 @@ public class StatusBarNotifier
     return spannable;
   }
 
-  private void addAnswerAction(Notification.Builder builder) {
+  private void addAnswerAction(NotificationRemoteViewBuilder builder) {
     LogUtil.d(
         "StatusBarNotifier.addAnswerAction",
         "will show \"answer\" action in the incoming call Notification");
     PendingIntent answerVoicePendingIntent =
         createNotificationPendingIntent(mContext, ACTION_ANSWER_VOICE_INCOMING_CALL);
-    builder.addAction(
-        new Notification.Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.quantum_ic_call_white_24),
-                getActionText(
-                    R.string.notification_action_answer, R.color.notification_action_accept),
-                answerVoicePendingIntent)
-            .build());
+    builder.setSecondaryButtonLabel(mContext.getString(R.string.notification_action_answer));
+    builder.setSecondaryPendingIntent(answerVoicePendingIntent);
   }
 
-  private void addDismissAction(Notification.Builder builder) {
+  private void addDismissAction(NotificationRemoteViewBuilder builder) {
     LogUtil.d(
         "StatusBarNotifier.addDismissAction",
         "will show \"decline\" action in the incoming call Notification");
     PendingIntent declinePendingIntent =
         createNotificationPendingIntent(mContext, ACTION_DECLINE_INCOMING_CALL);
-    builder.addAction(
-        new Notification.Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.quantum_ic_close_white_24),
-                getActionText(
-                    R.string.notification_action_dismiss, R.color.notification_action_dismiss),
-                declinePendingIntent)
-            .build());
+    builder.setPrimaryButtonLabel(mContext.getString(R.string.notification_action_dismiss));
+    builder.setPrimaryPendingIntent(declinePendingIntent);
   }
 
-  private void addHangupAction(Notification.Builder builder) {
+  private void addHangupAction(NotificationRemoteViewBuilder builder) {
     LogUtil.d(
         "StatusBarNotifier.addHangupAction",
         "will show \"hang-up\" action in the ongoing active call Notification");
     PendingIntent hangupPendingIntent =
         createNotificationPendingIntent(mContext, ACTION_HANG_UP_ONGOING_CALL);
-    builder.addAction(
-        new Notification.Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.ic_call_end_white_24dp),
-                mContext.getText(R.string.notification_action_end_call),
-                hangupPendingIntent)
-            .build());
+    builder.setPrimaryButtonLabel(mContext.getString(R.string.notification_action_end_call));
+    builder.setPrimaryPendingIntent(hangupPendingIntent);
   }
 
-  private void addVideoCallAction(Notification.Builder builder) {
+  private void addVideoCallAction(NotificationRemoteViewBuilder builder) {
     LogUtil.i(
         "StatusBarNotifier.addVideoCallAction",
         "will show \"video\" action in the incoming call Notification");
     PendingIntent answerVideoPendingIntent =
         createNotificationPendingIntent(mContext, ACTION_ANSWER_VIDEO_INCOMING_CALL);
-    builder.addAction(
-        new Notification.Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.quantum_ic_videocam_white_24),
-                getActionText(
-                    R.string.notification_action_answer_video,
-                    R.color.notification_action_answer_video),
-                answerVideoPendingIntent)
-            .build());
+    builder.setPrimaryButtonLabel(mContext.getString(R.string.notification_action_answer_voice));
+    builder.setPrimaryPendingIntent(answerVideoPendingIntent);
   }
 
-  private void addAcceptUpgradeRequestAction(Notification.Builder builder) {
+  private void addAcceptUpgradeRequestAction(NotificationRemoteViewBuilder builder) {
     LogUtil.i(
         "StatusBarNotifier.addAcceptUpgradeRequestAction",
         "will show \"accept upgrade\" action in the incoming call Notification");
     PendingIntent acceptVideoPendingIntent =
         createNotificationPendingIntent(mContext, ACTION_ACCEPT_VIDEO_UPGRADE_REQUEST);
-    builder.addAction(
-        new Notification.Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.quantum_ic_videocam_white_24),
-                getActionText(
-                    R.string.notification_action_accept, R.color.notification_action_accept),
-                acceptVideoPendingIntent)
-            .build());
+    builder.setPrimaryButtonLabel(mContext.getString(R.string.notification_action_accept));
+    builder.setPrimaryPendingIntent(acceptVideoPendingIntent);
   }
 
-  private void addDismissUpgradeRequestAction(Notification.Builder builder) {
+  private void addDismissUpgradeRequestAction(NotificationRemoteViewBuilder builder) {
     LogUtil.i(
         "StatusBarNotifier.addDismissUpgradeRequestAction",
         "will show \"dismiss upgrade\" action in the incoming call Notification");
     PendingIntent declineVideoPendingIntent =
         createNotificationPendingIntent(mContext, ACTION_DECLINE_VIDEO_UPGRADE_REQUEST);
-    builder.addAction(
-        new Notification.Action.Builder(
-                Icon.createWithResource(mContext, R.drawable.quantum_ic_videocam_white_24),
-                getActionText(
-                    R.string.notification_action_dismiss, R.color.notification_action_dismiss),
-                declineVideoPendingIntent)
-            .build());
+    builder.setSecondaryButtonLabel(mContext.getString(R.string.notification_action_dismiss));
+    builder.setSecondaryPendingIntent(declineVideoPendingIntent);
   }
 
   /** Adds fullscreen intent to the builder. */

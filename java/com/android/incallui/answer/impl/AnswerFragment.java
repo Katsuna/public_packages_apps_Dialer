@@ -24,7 +24,9 @@ import android.animation.ObjectAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
 import android.location.Location;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -47,7 +49,9 @@ import android.view.ViewTreeObserver.OnGlobalLayoutListener;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction;
+import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.ToggleButton;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
@@ -77,12 +81,19 @@ import com.android.incallui.incall.protocol.InCallScreenDelegateFactory;
 import com.android.incallui.incall.protocol.PrimaryCallState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
 import com.android.incallui.incall.protocol.SecondaryInfo;
+import com.android.incallui.katsuna.CallInfoUtils;
 import com.android.incallui.maps.MapsComponent;
 import com.android.incallui.sessiondata.AvatarPresenter;
 import com.android.incallui.sessiondata.MultimediaFragment;
 import com.android.incallui.util.AccessibilityUtil;
 import com.android.incallui.video.protocol.VideoCallScreen;
 import com.android.incallui.videotech.utils.VideoUtils;
+import com.android.incallui.katsuna.DrawDialerUtils;
+import com.katsuna.commons.entities.ColorProfileKeyV2;
+import com.katsuna.commons.entities.UserProfile;
+import com.katsuna.commons.utils.ColorCalcV2;
+import com.katsuna.commons.utils.ProfileReader;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -96,6 +107,14 @@ public class AnswerFragment extends Fragment
         CreateCustomSmsHolder,
         AnswerMethodHolder,
         MultimediaFragment.Holder {
+
+
+  private ToggleButton mSilenceButton;
+  private View mAnswerLayout;
+  private Button mMessageButton;
+  private Button mDeclineButton;
+  private Button mAnswerButton;
+  private CallInfoUtils mCallInfoUtils;
 
   @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
   static final String ARG_CALL_ID = "call_id";
@@ -134,9 +153,7 @@ public class AnswerFragment extends Fragment
   private InCallScreenDelegate inCallScreenDelegate;
 
   private View importanceBadge;
-  private SwipeButtonView secondaryButton;
-  private SwipeButtonView answerAndReleaseButton;
-  private AffordanceHolderLayout affordanceHolderLayout;
+
   // Use these flags to prevent user from clicking accept/reject buttons multiple times.
   // We use separate flags because in some rare cases accepting a call may fail to join the room,
   // and then user is stuck in the incoming call view until it times out. Two flags at least give
@@ -149,9 +166,7 @@ public class AnswerFragment extends Fragment
   private ArrayList<CharSequence> textResponses;
   private SmsBottomSheetFragment textResponsesFragment;
   private CreateCustomSmsDialogFragment createCustomSmsDialogFragment;
-  private SecondaryBehavior secondaryBehavior = SecondaryBehavior.REJECT_WITH_SMS;
-  private SecondaryBehavior answerAndReleaseBehavior;
-  private ContactGridManager contactGridManager;
+
   private VideoCallScreen answerVideoCallScreen;
   private Handler handler = new Handler(Looper.getMainLooper());
 
@@ -214,23 +229,8 @@ public class AnswerFragment extends Fragment
   }
 
   private void performAnswerAndRelease() {
-    restoreAnswerAndReleaseButtonAnimation();
     answerScreenDelegate.onAnswerAndReleaseCall();
     buttonAcceptClicked = true;
-  }
-
-  private void restoreAnswerAndReleaseButtonAnimation() {
-    answerAndReleaseButton
-        .animate()
-        .alpha(0)
-        .withEndAction(
-            new Runnable() {
-              @Override
-              public void run() {
-                affordanceHolderLayout.reset(false);
-                secondaryButton.animate().alpha(1);
-              }
-            });
   }
 
   private final AccessibilityDelegate accessibilityDelegate =
@@ -238,106 +238,13 @@ public class AnswerFragment extends Fragment
         @Override
         public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
           super.onInitializeAccessibilityNodeInfo(host, info);
-          if (host == secondaryButton) {
-            CharSequence label = getText(secondaryBehavior.accessibilityLabel);
-            info.addAction(new AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, label));
-          } else if (host == answerAndReleaseButton) {
-            CharSequence label = getText(answerAndReleaseBehavior.accessibilityLabel);
-            info.addAction(new AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, label));
-          }
         }
 
         @Override
         public boolean performAccessibilityAction(View host, int action, Bundle args) {
-          if (action == AccessibilityNodeInfo.ACTION_CLICK) {
-            if (host == secondaryButton) {
-              performSecondaryButtonAction();
-              return true;
-            } else if (host == answerAndReleaseButton) {
-              performAnswerAndReleaseButtonAction();
-              return true;
-            }
-          }
           return super.performAccessibilityAction(host, action, args);
         }
       };
-
-  private final Callback affordanceCallback =
-      new Callback() {
-        @Override
-        public void onAnimationToSideStarted(boolean rightPage, float translation, float vel) {}
-
-        @Override
-        public void onAnimationToSideEnded(boolean rightPage) {
-          if (rightPage) {
-            performAnswerAndReleaseButtonAction();
-          } else {
-            performSecondaryButtonAction();
-          }
-        }
-
-        @Override
-        public float getMaxTranslationDistance() {
-          View view = getView();
-          if (view == null) {
-            return 0;
-          }
-          return (float) Math.hypot(view.getWidth(), view.getHeight());
-        }
-
-        @Override
-        public void onSwipingStarted(boolean rightIcon) {}
-
-        @Override
-        public void onSwipingAborted() {}
-
-        @Override
-        public void onIconClicked(boolean rightIcon) {
-          affordanceHolderLayout.startHintAnimation(rightIcon, null);
-          getAnswerMethod()
-              .setHintText(
-                  rightIcon
-                      ? getText(answerAndReleaseBehavior.hintText)
-                      : getText(secondaryBehavior.hintText));
-          handler.removeCallbacks(swipeHintRestoreTimer);
-          handler.postDelayed(swipeHintRestoreTimer, HINT_SECONDARY_SHOW_DURATION_MILLIS);
-        }
-
-        @Override
-        public SwipeButtonView getLeftIcon() {
-          return secondaryButton;
-        }
-
-        @Override
-        public SwipeButtonView getRightIcon() {
-          return answerAndReleaseButton;
-        }
-
-        @Override
-        public View getLeftPreview() {
-          return null;
-        }
-
-        @Override
-        public View getRightPreview() {
-          return null;
-        }
-
-        @Override
-        public float getAffordanceFalsingFactor() {
-          return 1.0f;
-        }
-      };
-
-  private Runnable swipeHintRestoreTimer = this::restoreSwipeHintTexts;
-
-  private void performSecondaryButtonAction() {
-    secondaryBehavior.performAction(this);
-  }
-
-  private void performAnswerAndReleaseButtonAction() {
-    answerAndReleaseBehavior.performAction(this);
-  }
 
   public static AnswerFragment newInstance(
       String callId,
@@ -382,61 +289,12 @@ public class AnswerFragment extends Fragment
     } else if (textResponses == null) {
       LogUtil.i("AnswerFragment.setTextResponses", "no text responses, hiding secondary button");
       this.textResponses = null;
-      secondaryButton.setVisibility(View.INVISIBLE);
     } else if (ActivityCompat.isInMultiWindowMode(getActivity())) {
       LogUtil.i("AnswerFragment.setTextResponses", "in multiwindow, hiding secondary button");
       this.textResponses = null;
-      secondaryButton.setVisibility(View.INVISIBLE);
     } else {
       LogUtil.i("AnswerFragment.setTextResponses", "textResponses.size: " + textResponses.size());
       this.textResponses = new ArrayList<>(textResponses);
-      secondaryButton.setVisibility(View.VISIBLE);
-    }
-  }
-
-  private void initSecondaryButton() {
-    secondaryBehavior =
-        isVideoCall() || isVideoUpgradeRequest()
-            ? SecondaryBehavior.ANSWER_VIDEO_AS_AUDIO
-            : SecondaryBehavior.REJECT_WITH_SMS;
-    secondaryBehavior.applyToView(secondaryButton);
-
-    secondaryButton.setOnClickListener(
-        new OnClickListener() {
-          @Override
-          public void onClick(View v) {
-            performSecondaryButtonAction();
-          }
-        });
-    secondaryButton.setClickable(AccessibilityUtil.isAccessibilityEnabled(getContext()));
-    secondaryButton.setFocusable(AccessibilityUtil.isAccessibilityEnabled(getContext()));
-    secondaryButton.setAccessibilityDelegate(accessibilityDelegate);
-
-    if (isVideoUpgradeRequest()) {
-      secondaryButton.setVisibility(View.INVISIBLE);
-    } else if (isVideoCall()) {
-      secondaryButton.setVisibility(View.VISIBLE);
-    }
-
-    answerAndReleaseBehavior = SecondaryBehavior.ANSWER_AND_RELEASE;
-    answerAndReleaseBehavior.applyToView(answerAndReleaseButton);
-    answerAndReleaseButton.setOnClickListener(
-        new OnClickListener() {
-          @Override
-          public void onClick(View v) {
-            performAnswerAndReleaseButtonAction();
-          }
-        });
-    answerAndReleaseButton.setClickable(AccessibilityUtil.isAccessibilityEnabled(getContext()));
-    answerAndReleaseButton.setFocusable(AccessibilityUtil.isAccessibilityEnabled(getContext()));
-    answerAndReleaseButton.setAccessibilityDelegate(accessibilityDelegate);
-
-    if (allowAnswerAndRelease()) {
-      answerAndReleaseButton.setVisibility(View.VISIBLE);
-      answerScreenDelegate.onAnswerAndReleaseButtonEnabled();
-    } else {
-      answerAndReleaseButton.setVisibility(View.INVISIBLE);
-      answerScreenDelegate.onAnswerAndReleaseButtonDisabled();
     }
   }
 
@@ -498,34 +356,18 @@ public class AnswerFragment extends Fragment
     return this;
   }
 
-  private AnswerMethod getAnswerMethod() {
-    return ((AnswerMethod)
-        getChildFragmentManager().findFragmentById(R.id.answer_method_container));
-  }
-
   @Override
   public void setPrimary(PrimaryInfo primaryInfo) {
     LogUtil.i("AnswerFragment.setPrimary", primaryInfo.toString());
     this.primaryInfo = primaryInfo;
     updatePrimaryUI();
-    updateImportanceBadgeVisibility();
   }
 
   private void updatePrimaryUI() {
     if (getView() == null) {
       return;
     }
-    contactGridManager.setPrimary(primaryInfo);
-    getAnswerMethod().setShowIncomingWillDisconnect(primaryInfo.answeringDisconnectsOngoingCall);
-    getAnswerMethod()
-        .setContactPhoto(
-            primaryInfo.photoType == ContactPhotoType.CONTACT ? primaryInfo.photo : null);
-    updateDataFragment();
-
-    if (primaryInfo.shouldShowLocation) {
-      // Hide the avatar to make room for location
-      contactGridManager.setAvatarHidden(true);
-    }
+    mCallInfoUtils.setPrimary(primaryInfo);
   }
 
   private void updateDataFragment() {
@@ -571,7 +413,6 @@ public class AnswerFragment extends Fragment
         LogUtil.i("AnswerFragment.updateDataFragment", "Removing current fragment");
         getChildFragmentManager().beginTransaction().remove(current).commitNow();
       }
-      contactGridManager.setAvatarImageView(null, 0, false);
     }
 
     if (newFragment != null) {
@@ -592,10 +433,6 @@ public class AnswerFragment extends Fragment
 
   @Override
   public void updateAvatar(AvatarPresenter avatarContainer) {
-    contactGridManager.setAvatarImageView(
-        avatarContainer.getAvatarImageView(),
-        avatarContainer.getAvatarSize(),
-        avatarContainer.shouldShowAnonymousAvatar());
   }
 
   @Override
@@ -605,7 +442,7 @@ public class AnswerFragment extends Fragment
   public void setCallState(@NonNull PrimaryCallState primaryCallState) {
     LogUtil.i("AnswerFragment.setCallState", primaryCallState.toString());
     this.primaryCallState = primaryCallState;
-    contactGridManager.setCallState(primaryCallState);
+    mCallInfoUtils.setCallState(primaryCallState);
   }
 
   @Override
@@ -621,7 +458,6 @@ public class AnswerFragment extends Fragment
 
   @Override
   public void dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
-    contactGridManager.dispatchPopulateAccessibilityEvent(event);
     // Add prompt of how to accept/decline call with swipe gesture.
     if (AccessibilityUtil.isTouchExplorationEnabled(getContext())) {
       event
@@ -665,47 +501,12 @@ public class AnswerFragment extends Fragment
     buttonAcceptClicked = false;
     buttonRejectClicked = false;
 
-    View view = inflater.inflate(R.layout.fragment_incoming_call, container, false);
-    secondaryButton = (SwipeButtonView) view.findViewById(R.id.incoming_secondary_button);
-    answerAndReleaseButton = (SwipeButtonView) view.findViewById(R.id.incoming_secondary_button2);
-
-    affordanceHolderLayout = (AffordanceHolderLayout) view.findViewById(R.id.incoming_container);
-    affordanceHolderLayout.setAffordanceCallback(affordanceCallback);
-
-    importanceBadge = view.findViewById(R.id.incall_important_call_badge);
-    importanceBadge
-        .getViewTreeObserver()
-        .addOnGlobalLayoutListener(
-            new OnGlobalLayoutListener() {
-              @Override
-              public void onGlobalLayout() {
-                int leftRightPadding = importanceBadge.getHeight() / 2;
-                importanceBadge.setPadding(
-                    leftRightPadding,
-                    importanceBadge.getPaddingTop(),
-                    leftRightPadding,
-                    importanceBadge.getPaddingBottom());
-              }
-            });
-    updateImportanceBadgeVisibility();
-
-    contactGridManager = new ContactGridManager(view, null, 0, false /* showAnonymousAvatar */);
-
-    Fragment answerMethod =
-        getChildFragmentManager().findFragmentById(R.id.answer_method_container);
-    if (AnswerMethodFactory.needsReplacement(answerMethod)) {
-      getChildFragmentManager()
-          .beginTransaction()
-          .replace(
-              R.id.answer_method_container, AnswerMethodFactory.createAnswerMethod(getActivity()))
-          .commitNow();
-    }
+    View view = inflater.inflate(R.layout.katsuna_answer_layout, container, false);
+    initKatsunaControls(view);
 
     answerScreenDelegate =
         FragmentUtils.getParentUnsafe(this, AnswerScreenDelegateFactory.class)
             .newAnswerScreenDelegate(this);
-
-    initSecondaryButton();
 
     int flags = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
     if (!ActivityCompat.isInMultiWindowMode(getActivity())
@@ -724,8 +525,6 @@ public class AnswerFragment extends Fragment
         } else {
           answerVideoCallScreen = new AnswerVideoCallScreen(getCallId(), this, view);
         }
-      } else {
-        view.findViewById(R.id.videocall_video_off).setVisibility(View.VISIBLE);
       }
     }
 
@@ -743,18 +542,55 @@ public class AnswerFragment extends Fragment
     super.onViewCreated(view, savedInstanceState);
     createInCallScreenDelegate();
     updateUI();
-
-    if (savedInstanceState == null || !savedInstanceState.getBoolean(STATE_HAS_ANIMATED_ENTRY)) {
-      ViewUtil.doOnGlobalLayout(view, this::animateEntry);
-    }
   }
 
   @Override
   public void onResume() {
     super.onResume();
     LogUtil.i("AnswerFragment.onResume", null);
-    restoreSwipeHintTexts();
+    adjustProfile();
     inCallScreenDelegate.onInCallScreenResumed();
+  }
+
+  private void initKatsunaControls(View view) {
+    mAnswerLayout = view.findViewById(R.id.answer_layout);
+    mSilenceButton = view.findViewById(R.id.silence_button);
+    mSilenceButton.setOnCheckedChangeListener((buttonView, isChecked) -> {
+      AudioManager audioManager = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+      audioManager.setStreamMute(AudioManager.STREAM_RING, isChecked);
+    });
+    mMessageButton = view.findViewById(R.id.message_button);
+    mMessageButton.setOnClickListener(new OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        showMessageMenu();
+      }
+    });
+    mDeclineButton = view.findViewById(R.id.decline_button);
+    mDeclineButton.setOnClickListener(v -> rejectCall());
+    mAnswerButton = view.findViewById(R.id.answer_button);
+    mAnswerButton.setOnClickListener(v -> answerFromMethod());
+
+    mCallInfoUtils = new CallInfoUtils(view, true);
+
+  }
+
+  private void adjustProfile() {
+      Context ctx = getContext();
+      UserProfile profile = ProfileReader.getUserProfileFromKatsunaServices(ctx);
+
+      int mColorSecondary1 = ColorCalcV2.getColor(ctx, ColorProfileKeyV2.SECONDARY_COLOR_1,
+              profile.colorProfile);
+
+      mAnswerLayout.setBackgroundColor(mColorSecondary1);
+
+      DrawDialerUtils.adjustToggleButton(ctx, profile, mSilenceButton);
+
+      Drawable buttonBg = DrawDialerUtils.createButtonBg(ctx, profile);
+      DrawDialerUtils.adjustButton(mMessageButton, buttonBg);
+
+      DrawDialerUtils.adjustPrimaryButton(ctx, profile, mDeclineButton);
+      DrawDialerUtils.adjustSecondaryButton(ctx, profile, mAnswerButton);
   }
 
   @Override
@@ -773,7 +609,6 @@ public class AnswerFragment extends Fragment
     super.onStop();
     LogUtil.i("AnswerFragment.onStop", null);
 
-    handler.removeCallbacks(swipeHintRestoreTimer);
     if (answerVideoCallScreen != null) {
       answerVideoCallScreen.onVideoScreenStop();
     }
@@ -812,7 +647,7 @@ public class AnswerFragment extends Fragment
       updatePrimaryUI();
     }
     if (primaryCallState != null) {
-      contactGridManager.setCallState(primaryCallState);
+      mCallInfoUtils.setCallState(primaryCallState);
     }
 
     restoreBackgroundMaskColor();
@@ -834,20 +669,6 @@ public class AnswerFragment extends Fragment
     if (primaryCallState.state == State.INCOMING && !isVideoCall()) {
       answerScreenDelegate.updateWindowBackgroundColor(answerProgress);
     }
-
-    // Fade and scale contact name and video call text
-    float startDelay = .25f;
-    // Header progress is zero over positiveAdjustedProgress = [0, startDelay],
-    // linearly increases over (startDelay, 1] until reaching 1 when positiveAdjustedProgress = 1
-    float headerProgress = Math.max(0, (Math.abs(answerProgress) - 1) / (1 - startDelay) + 1);
-    fadeToward(contactGridManager.getContainerView(), 1 - headerProgress);
-    scaleToward(contactGridManager.getContainerView(), MathUtil.lerp(1f, .75f, headerProgress));
-
-    if (Math.abs(answerProgress) >= .0001) {
-      affordanceHolderLayout.animateHideLeftRightIcon();
-      handler.removeCallbacks(swipeHintRestoreTimer);
-      restoreSwipeHintTexts();
-    }
   }
 
   @Override
@@ -862,42 +683,7 @@ public class AnswerFragment extends Fragment
 
   @Override
   public void resetAnswerProgress() {
-    affordanceHolderLayout.reset(true);
     restoreBackgroundMaskColor();
-  }
-
-  private void animateEntry(@NonNull View rootView) {
-    if (!isAdded()) {
-      LogUtil.i(
-          "AnswerFragment.animateEntry",
-          "Not currently added to Activity. Will not start entry animation.");
-      return;
-    }
-    contactGridManager.getContainerView().setAlpha(0f);
-    Animator alpha =
-        ObjectAnimator.ofFloat(contactGridManager.getContainerView(), View.ALPHA, 0, 1);
-    Animator topRow = createTranslation(rootView.findViewById(R.id.contactgrid_top_row));
-    Animator contactName = createTranslation(rootView.findViewById(R.id.contactgrid_contact_name));
-    Animator bottomRow = createTranslation(rootView.findViewById(R.id.contactgrid_bottom_row));
-    Animator important = createTranslation(importanceBadge);
-    Animator dataContainer = createTranslation(rootView.findViewById(R.id.incall_data_container));
-
-    AnimatorSet animatorSet = new AnimatorSet();
-    AnimatorSet.Builder builder = animatorSet.play(alpha);
-    builder.with(topRow).with(contactName).with(bottomRow).with(important).with(dataContainer);
-    if (isShowingLocationUi()) {
-      builder.with(createTranslation(rootView.findViewById(R.id.incall_location_holder)));
-    }
-    animatorSet.setDuration(
-        rootView.getResources().getInteger(R.integer.answer_animate_entry_millis));
-    animatorSet.addListener(
-        new AnimatorListenerAdapter() {
-          @Override
-          public void onAnimationEnd(Animator animation) {
-            hasAnimatedEntry = true;
-          }
-        });
-    animatorSet.start();
   }
 
   private ObjectAnimator createTranslation(View view) {
@@ -936,22 +722,6 @@ public class AnswerFragment extends Fragment
     answerScreenDelegate.updateWindowBackgroundColor(0);
   }
 
-  private void restoreSwipeHintTexts() {
-    if (getAnswerMethod() != null) {
-      if (allowAnswerAndRelease()) {
-        if (hasCallOnHold()) {
-          getAnswerMethod()
-              .setHintText(getText(R.string.call_incoming_default_label_answer_and_release_third));
-        } else if (primaryCallState.supportsCallOnHold) {
-          getAnswerMethod()
-              .setHintText(getText(R.string.call_incoming_default_label_answer_and_release_second));
-        }
-      } else {
-        getAnswerMethod().setHintText(null);
-      }
-    }
-  }
-
   private void showMessageMenu() {
     LogUtil.i("AnswerFragment.showMessageMenu", "Show sms menu.");
     if (getChildFragmentManager().isDestroyed()) {
@@ -960,17 +730,6 @@ public class AnswerFragment extends Fragment
 
     textResponsesFragment = SmsBottomSheetFragment.newInstance(textResponses);
     textResponsesFragment.show(getChildFragmentManager(), null);
-    secondaryButton
-        .animate()
-        .alpha(0)
-        .withEndAction(
-            new Runnable() {
-              @Override
-              public void run() {
-                affordanceHolderLayout.reset(false);
-                secondaryButton.animate().alpha(1);
-              }
-            });
   }
 
   @Override

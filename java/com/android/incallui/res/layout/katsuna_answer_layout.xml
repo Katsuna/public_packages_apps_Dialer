@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/answer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:keepScreenOn="true"
+    android:orientation="vertical"
+    tools:context=".AnswerActivity">
+
+    <include layout="@layout/katsuna_call_info" />
+
+    <ToggleButton
+        android:id="@+id/silence_button"
+        style="@style/KatsunaButton.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/katsuna_layout_margin"
+        android:layout_marginStart="@dimen/katsuna_layout_margin"
+        android:layout_marginTop="56dp"
+        android:drawableStart="@drawable/katsuna_volume_off_black_28dp"
+        android:textOff="@string/silence"
+        android:textOn="@string/silence" />
+
+    <Button
+        android:id="@+id/message_button"
+        style="@style/KatsunaButton.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="22dp"
+        android:layout_marginEnd="@dimen/katsuna_layout_margin"
+        android:layout_marginStart="@dimen/katsuna_layout_margin"
+        android:layout_marginTop="16dp"
+        android:drawableStart="@drawable/katsuna_message_black54_28dp"
+        android:text="@string/send_message" />
+
+    <include layout="@layout/katsuna_divider" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/decline_button"
+            style="@style/KatsunaButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginStart="@dimen/katsuna_layout_margin"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:drawableStart="@drawable/katsuna_call_end_black_28dp"
+            android:gravity="start"
+            android:text="@string/decline"
+            android:textColor="@color/common_black87" />
+
+        <Button
+            android:id="@+id/answer_button"
+            style="@style/KatsunaButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:layout_marginEnd="@dimen/katsuna_layout_margin"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1"
+            android:drawableStart="@drawable/katsuna_call_black_28dp"
+            android:gravity="start"
+            android:text="@string/answer"
+            android:textColor="@color/common_grey50" />
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/katsuna_contact_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginEnd="@dimen/katsuna_layout_margin"
+        android:layout_marginStart="@dimen/katsuna_layout_margin"
+        android:layout_marginTop="100dp"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center"
+        android:minHeight="30dp"
+        android:textColor="@color/common_black"
+        android:textSize="26sp" />
+
+    <TextView
+        android:id="@+id/katsuna_status_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginEnd="@dimen/katsuna_layout_margin"
+        android:layout_marginStart="@dimen/katsuna_layout_margin"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:minHeight="25dp"
+        android:text="@string/calling"
+        android:textColor="@color/common_black54"
+        android:textSize="21sp"
+        android:visibility="gone" />
+
+
+    <Chronometer
+        android:id="@+id/katsuna_timer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="8dp"
+        android:singleLine="true"
+        android:textColor="@color/common_black54"
+        android:textSize="21sp"
+        tools:gravity="center" />
+
+</LinearLayout>

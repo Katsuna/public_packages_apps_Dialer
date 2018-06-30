@@ -19,6 +19,7 @@ package com.android.incallui.incall.impl;
 import android.Manifest.permission;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
 import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
@@ -37,7 +38,10 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
+import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.Toast;
+import android.widget.ToggleButton;
 import com.android.dialer.common.Assert;
 import com.android.dialer.common.FragmentUtils;
 import com.android.dialer.common.LogUtil;
@@ -45,6 +49,7 @@ import com.android.dialer.logging.DialerImpression;
 import com.android.dialer.logging.Logger;
 import com.android.dialer.multimedia.MultimediaData;
 import com.android.dialer.widget.LockableViewPager;
+import com.android.incallui.InCallActivity;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment;
 import com.android.incallui.audioroute.AudioRouteSelectorDialogFragment.AudioRouteSelectorPresenter;
 import com.android.incallui.contactgrid.ContactGridManager;
@@ -62,6 +67,14 @@ import com.android.incallui.incall.protocol.InCallScreenDelegateFactory;
 import com.android.incallui.incall.protocol.PrimaryCallState;
 import com.android.incallui.incall.protocol.PrimaryInfo;
 import com.android.incallui.incall.protocol.SecondaryInfo;
+import com.android.incallui.katsuna.CallInfoUtils;
+import com.android.incallui.katsuna.DrawDialerUtils;
+import com.android.incallui.katsuna.KatsunaSpeakerButtonInfo;
+import com.katsuna.commons.entities.ColorProfileKeyV2;
+import com.katsuna.commons.entities.UserProfile;
+import com.katsuna.commons.utils.ColorCalcV2;
+import com.katsuna.commons.utils.ProfileReader;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,11 +87,7 @@ public class InCallFragment extends Fragment
         OnButtonGridCreatedListener {
 
   private List<ButtonController> buttonControllers = new ArrayList<>();
-  private View endCallButton;
-  private InCallPaginator paginator;
-  private LockableViewPager pager;
   private InCallPagerAdapter adapter;
-  private ContactGridManager contactGridManager;
   private InCallScreenDelegate inCallScreenDelegate;
   private InCallButtonUiDelegate inCallButtonUiDelegate;
   private InCallButtonGridFragment inCallButtonGridFragment;
@@ -88,16 +97,15 @@ public class InCallFragment extends Fragment
   private int phoneType;
   private boolean stateRestored;
 
-  // Add animation to educate users. If a call has enriched calling attachments then we'll
-  // initially show the attachment page. After a delay seconds we'll animate to the button grid.
-  private final Handler handler = new Handler();
-  private final Runnable pagerRunnable =
-      new Runnable() {
-        @Override
-        public void run() {
-          pager.setCurrentItem(adapter.getButtonGridPosition());
-        }
-      };
+  private View mInCallLayout;
+  private Button mBluetoothButton;
+  private ToggleButton mMuteButton;
+  private ToggleButton mHoldButton;
+  private Button mDialpadButton;
+  private View mEndCallButton;
+  private InCallButtonUi mKatsunaInCallButtonUi;
+  private CallInfoUtils mCallInfoUtils;
+
 
   private static boolean isSupportedButton(@InCallButtonIds int id) {
     return id == InCallButtonIds.BUTTON_AUDIO
@@ -131,6 +139,8 @@ public class InCallFragment extends Fragment
     }
   }
 
+  private boolean mDialPadVisible;
+
   @Nullable
   @Override
   public View onCreateView(
@@ -139,23 +149,8 @@ public class InCallFragment extends Fragment
       @Nullable Bundle bundle) {
     LogUtil.i("InCallFragment.onCreateView", null);
     final View view = layoutInflater.inflate(R.layout.frag_incall_voice, viewGroup, false);
-    contactGridManager =
-        new ContactGridManager(
-            view,
-            (ImageView) view.findViewById(R.id.contactgrid_avatar),
-            getResources().getDimensionPixelSize(R.dimen.incall_avatar_size),
-            true /* showAnonymousAvatar */);
+    mCallInfoUtils = new CallInfoUtils(view, false);
 
-    paginator = (InCallPaginator) view.findViewById(R.id.incall_paginator);
-    pager = (LockableViewPager) view.findViewById(R.id.incall_pager);
-    pager.setOnTouchListener(
-        (v, event) -> {
-          handler.removeCallbacks(pagerRunnable);
-          return false;
-        });
-
-    endCallButton = view.findViewById(R.id.incall_end_call);
-    endCallButton.setOnClickListener(this);
 
     if (ContextCompat.checkSelfPermission(getContext(), permission.READ_PHONE_STATE)
         != PackageManager.PERMISSION_GRANTED) {
@@ -168,6 +163,134 @@ public class InCallFragment extends Fragment
               : TelephonyManager.NETWORK_TYPE_UNKNOWN;
     }
     phoneType = getContext().getSystemService(TelephonyManager.class).getPhoneType();
+
+    mInCallLayout = view.findViewById(R.id.incall_layout);
+    mBluetoothButton = view.findViewById(R.id.bluetooth_button);
+    mBluetoothButton.setOnClickListener(new OnClickListener() {
+        @Override
+        public void onClick(View v) {
+          inCallButtonUiDelegate.showAudioRouteSelector();
+        }
+    });
+    mMuteButton = view.findViewById(R.id.mute_button);
+    mMuteButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+       @Override
+       public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+           inCallButtonUiDelegate.muteClicked(isChecked, true);
+
+           //TelecomAdapter.getInstance().mute(isChecked);
+       }
+    });
+    mDialpadButton = view.findViewById(R.id.dialpad_button);
+    mDialpadButton.setOnClickListener(new OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        ((InCallActivity) getActivity()).showDialpadFragment(true /* show */,
+                true /* animate */);
+        //inCallButtonUiDelegate.showDialpadClicked();
+        mDialPadVisible = !mDialPadVisible;
+      }
+    });
+    mHoldButton = view.findViewById(R.id.hold_button);
+    mHoldButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+      @Override
+      public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+        inCallButtonUiDelegate.holdClicked(isChecked);
+      }
+    });
+    mEndCallButton = view.findViewById(R.id.end_call_button);
+    mEndCallButton.setOnClickListener(new OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        LogUtil.i("InCallFragment.onClick", "end call button clicked");
+        inCallScreenDelegate.onEndCallClicked();
+      }
+    });
+
+    mKatsunaInCallButtonUi = new InCallButtonUi() {
+      @Override
+      public void showButton(int buttonId, boolean show) {
+
+      }
+
+      @Override
+      public void enableButton(int buttonId, boolean enable) {
+
+      }
+
+      @Override
+      public void setEnabled(boolean on) {
+
+      }
+
+      @Override
+      public void setHold(boolean on) {
+        if (mHoldButton != null) {
+          if (mHoldButton.isChecked() ^ on) {
+            mHoldButton.setChecked(on);
+          }
+        }
+      }
+
+      @Override
+      public void setCameraSwitched(boolean isBackFacingCamera) {
+
+      }
+
+      @Override
+      public void setVideoPaused(boolean isPaused) {
+
+      }
+
+      @Override
+      public void setAudioState(CallAudioState audioState) {
+        LogUtil.i("InCallFragment.setAudioState", "audioState: " + audioState);
+        if (mMuteButton != null) {
+          if (audioState.isMuted()) {
+            if (!mMuteButton.isChecked()) {
+              mMuteButton.setChecked(true);
+            }
+          } else {
+            if (mMuteButton.isChecked()) {
+              mMuteButton.setChecked(false);
+            }
+          }
+        }
+
+        KatsunaSpeakerButtonInfo speakerButtonInfo = new KatsunaSpeakerButtonInfo(audioState);
+
+        int label = speakerButtonInfo.label;
+        String labelStr = getString(label);
+
+        mBluetoothButton.setText(labelStr);
+
+        Drawable icon = getContext().getDrawable(speakerButtonInfo.icon);
+        mBluetoothButton.setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null);
+      }
+
+      @Override
+      public void updateButtonStates() {
+
+      }
+
+      @Override
+      public void updateInCallButtonUiColors() {
+
+      }
+
+      @Override
+      public Fragment getInCallButtonUiFragment() {
+        return null;
+      }
+
+      @Override
+      public void showAudioRouteSelector() {
+        AudioRouteSelectorDialogFragment.newInstance(inCallButtonUiDelegate.getCurrentAudioState())
+                .show(getChildFragmentManager(), null);
+      }
+    };
+
+
     return view;
   }
 
@@ -176,6 +299,31 @@ public class InCallFragment extends Fragment
     super.onResume();
     inCallButtonUiDelegate.refreshMuteState();
     inCallScreenDelegate.onInCallScreenResumed();
+
+    adjustProfiles();
+  }
+
+  private UserProfile mUserProfile;
+
+  private void adjustProfiles() {
+    Context ctx = getContext();
+    mUserProfile = ProfileReader.getUserProfileFromKatsunaServices(ctx);
+
+    int mColorSecondary1 = ColorCalcV2.getColor(ctx, ColorProfileKeyV2.SECONDARY_COLOR_1,
+            mUserProfile.colorProfile);
+
+    mInCallLayout.setBackgroundColor(mColorSecondary1);
+
+
+    DrawDialerUtils.adjustToggleButton(ctx, mUserProfile, mMuteButton);
+
+    Drawable buttonBg = DrawDialerUtils.createButtonBg(ctx, mUserProfile);
+    DrawDialerUtils.adjustButton(mDialpadButton, buttonBg);
+    DrawDialerUtils.adjustButton(mBluetoothButton, buttonBg);
+
+    DrawDialerUtils.adjustToggleButton(ctx, mUserProfile, mHoldButton);
+
+    DrawDialerUtils.adjustPrimaryButton(ctx, mUserProfile, mEndCallButton);
   }
 
   @Override
@@ -202,6 +350,7 @@ public class InCallFragment extends Fragment
 
     inCallScreenDelegate.onInCallScreenDelegateInit(this);
     inCallScreenDelegate.onInCallScreenReady();
+    inCallButtonUiDelegate.onInCallButtonUiReady(mKatsunaInCallButtonUi);
   }
 
   @Override
@@ -214,6 +363,7 @@ public class InCallFragment extends Fragment
   public void onDestroyView() {
     super.onDestroyView();
     inCallScreenDelegate.onInCallScreenUnready();
+    inCallButtonUiDelegate.onInCallButtonUiUnready();
   }
 
   @Override
@@ -224,63 +374,21 @@ public class InCallFragment extends Fragment
 
   @Override
   public void onClick(View view) {
-    if (view == endCallButton) {
-      LogUtil.i("InCallFragment.onClick", "end call button clicked");
-      inCallScreenDelegate.onEndCallClicked();
-    } else {
-      LogUtil.e("InCallFragment.onClick", "unknown view: " + view);
-      Assert.fail();
-    }
   }
 
   @Override
   public void setPrimary(@NonNull PrimaryInfo primaryInfo) {
     LogUtil.i("InCallFragment.setPrimary", primaryInfo.toString());
     setAdapterMedia(primaryInfo.multimediaData);
-    contactGridManager.setPrimary(primaryInfo);
+    mCallInfoUtils.setPrimary(primaryInfo);
 
-    if (primaryInfo.shouldShowLocation) {
-      // Hide the avatar to make room for location
-      contactGridManager.setAvatarHidden(true);
-
-      // Need to widen the contact grid to fit location information
-      View contactGridView = getView().findViewById(R.id.incall_contact_grid);
-      ViewGroup.LayoutParams params = contactGridView.getLayoutParams();
-      if (params instanceof ViewGroup.MarginLayoutParams) {
-        ((ViewGroup.MarginLayoutParams) params).setMarginStart(0);
-        ((ViewGroup.MarginLayoutParams) params).setMarginEnd(0);
-      }
-      contactGridView.setLayoutParams(params);
-
-      // Need to let the dialpad move up a little further when location info is being shown
-      View dialpadView = getView().findViewById(R.id.incall_dialpad_container);
-      params = dialpadView.getLayoutParams();
-      if (params instanceof RelativeLayout.LayoutParams) {
-        ((RelativeLayout.LayoutParams) params).removeRule(RelativeLayout.BELOW);
-      }
-      dialpadView.setLayoutParams(params);
-    }
   }
 
   private void setAdapterMedia(MultimediaData multimediaData) {
     if (adapter == null) {
       adapter = new InCallPagerAdapter(getChildFragmentManager(), multimediaData);
-      pager.setAdapter(adapter);
     } else {
       adapter.setAttachments(multimediaData);
-    }
-
-    if (adapter.getCount() > 1 && getResources().getInteger(R.integer.incall_num_rows) > 1) {
-      paginator.setVisibility(View.VISIBLE);
-      paginator.setupWithViewPager(pager);
-      pager.setSwipingLocked(false);
-      if (!stateRestored) {
-        handler.postDelayed(pagerRunnable, 4_000);
-      } else {
-        pager.setCurrentItem(adapter.getButtonGridPosition(), false /* animateScroll */);
-      }
-    } else {
-      paginator.setVisibility(View.GONE);
     }
   }
 
@@ -314,7 +422,7 @@ public class InCallFragment extends Fragment
   @Override
   public void setCallState(@NonNull PrimaryCallState primaryCallState) {
     LogUtil.i("InCallFragment.setCallState", primaryCallState.toString());
-    contactGridManager.setCallState(primaryCallState);
+    mCallInfoUtils.setCallState(primaryCallState);
     buttonChooser =
         ButtonChooserFactory.newButtonChooser(voiceNetworkType, primaryCallState.isWifi, phoneType);
     updateButtonStates();
@@ -322,9 +430,6 @@ public class InCallFragment extends Fragment
 
   @Override
   public void setEndCallButtonEnabled(boolean enabled, boolean animate) {
-    if (endCallButton != null) {
-      endCallButton.setEnabled(enabled);
-    }
   }
 
   @Override
@@ -341,7 +446,6 @@ public class InCallFragment extends Fragment
 
   @Override
   public void dispatchPopulateAccessibilityEvent(AccessibilityEvent event) {
-    contactGridManager.dispatchPopulateAccessibilityEvent(event);
   }
 
   @Override
@@ -435,30 +539,6 @@ public class InCallFragment extends Fragment
 
   @Override
   public void updateButtonStates() {
-    // When the incall screen is ready, this method is called from #setSecondary, even though the
-    // incall button ui is not ready yet. This method is called again once the incall button ui is
-    // ready though, so this operation is safe and will be executed asap.
-    if (inCallButtonGridFragment == null) {
-      return;
-    }
-    int numVisibleButtons =
-        inCallButtonGridFragment.updateButtonStates(
-            buttonControllers, buttonChooser, voiceNetworkType, phoneType);
-
-    int visibility = numVisibleButtons == 0 ? View.GONE : View.VISIBLE;
-    pager.setVisibility(visibility);
-    if (adapter != null
-        && adapter.getCount() > 1
-        && getResources().getInteger(R.integer.incall_num_rows) > 1) {
-      paginator.setVisibility(View.VISIBLE);
-      pager.setSwipingLocked(false);
-    } else {
-      paginator.setVisibility(View.GONE);
-      if (adapter != null) {
-        pager.setSwipingLocked(true);
-        pager.setCurrentItem(adapter.getButtonGridPosition());
-      }
-    }
   }
 
   @Override
@@ -512,26 +592,11 @@ public class InCallFragment extends Fragment
 
   @Override
   public boolean isShowingLocationUi() {
-    Fragment fragment = getLocationFragment();
-    return fragment != null && fragment.isVisible();
+    return false;
   }
 
   @Override
   public void showLocationUi(@Nullable Fragment locationUi) {
-    boolean isVisible = isShowingLocationUi();
-    if (locationUi != null && !isVisible) {
-      // Show the location fragment.
-      getChildFragmentManager()
-          .beginTransaction()
-          .replace(R.id.incall_location_holder, locationUi)
-          .commitAllowingStateLoss();
-    } else if (locationUi == null && isVisible) {
-      // Hide the location fragment
-      getChildFragmentManager()
-          .beginTransaction()
-          .remove(getLocationFragment())
-          .commitAllowingStateLoss();
-    }
   }
 
   @Override
@@ -539,12 +604,6 @@ public class InCallFragment extends Fragment
     super.onMultiWindowModeChanged(isInMultiWindowMode);
     if (isInMultiWindowMode == isShowingLocationUi()) {
       LogUtil.i("InCallFragment.onMultiWindowModeChanged", "hide = " + isInMultiWindowMode);
-      // Need to show or hide location
-      showLocationUi(isInMultiWindowMode ? null : getLocationFragment());
     }
-  }
-
-  private Fragment getLocationFragment() {
-    return getChildFragmentManager().findFragmentById(R.id.incall_location_holder);
   }
 }

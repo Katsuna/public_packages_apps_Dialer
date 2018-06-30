@@ -37,8 +37,6 @@
     <item name="android:windowAnimationStyle">@null</item>
     <item name="android:alertDialogTheme">@style/AlertDialogTheme</item>
 
-    <item name="android:windowBackground">@drawable/incall_background_gradient</item>
-    <item name="android:windowShowWallpaper">true</item>
   </style>
 
   <style name="Theme.InCallScreen.ManageConference" parent="DialerThemeBase">

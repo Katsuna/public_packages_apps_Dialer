@@ -1,0 +1,8 @@
+<resources>
+
+    <!-- Katsuna dimens -->
+
+    <dimen name="common_letter_spacing">0.07</dimen>
+    <dimen name="katsuna_layout_margin">20dp</dimen>
+
+</resources>
