@@ -53,6 +53,8 @@ import com.android.dialer.phonenumbercache.ContactInfo;
 import com.android.dialer.phonenumberutil.PhoneNumberHelper;
 import com.android.dialer.util.DialerUtils;
 import com.android.dialer.util.IntentUtil;
+import com.katsuna.commons.KatsunaIntents;
+
 import java.util.List;
 import java.util.Set;
 
@@ -428,11 +430,8 @@ public class MissedCallNotifier implements Worker<Pair<Integer, String>, Void> {
    * @param callUri Uri of the call to jump to. May be null
    */
   private PendingIntent createCallLogPendingIntent(@Nullable Uri callUri) {
-    Intent contentIntent =
-        DialtactsActivity.getShowTabIntent(context, DialtactsPagerAdapter.TAB_INDEX_HISTORY);
-    // TODO (b/35486204): scroll to call
-    contentIntent.setData(callUri);
-    return PendingIntent.getActivity(context, 0, contentIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+    Intent contentIntent = new Intent(KatsunaIntents.ACTION_CALLS_VIEW);
+    return PendingIntent.getActivity(context, 0, contentIntent,PendingIntent.FLAG_UPDATE_CURRENT);
   }
 
   private PendingIntent createCallBackPendingIntent(String number, @NonNull Uri callUri) {
