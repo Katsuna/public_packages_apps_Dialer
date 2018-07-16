@@ -285,8 +285,88 @@ public class InCallFragment extends Fragment
 
       @Override
       public void showAudioRouteSelector() {
-        AudioRouteSelectorDialogFragment.newInstance(inCallButtonUiDelegate.getCurrentAudioState())
-                .show(getChildFragmentManager(), null);
+
+        CallAudioState currentAudioState = inCallButtonUiDelegate.getCurrentAudioState();
+
+        int supportedRoutes = 0;
+
+        boolean bluetoothSupported = true;
+        boolean bluetoothSelected = false;
+        if ((currentAudioState.getSupportedRouteMask() & CallAudioState.ROUTE_BLUETOOTH) == 0) {
+          bluetoothSupported = false;
+        } else {
+          if (currentAudioState.getRoute() == CallAudioState.ROUTE_BLUETOOTH) {
+            bluetoothSelected = true;
+          }
+          supportedRoutes++;
+        }
+
+        boolean speakerSupported = true;
+        boolean speakerSelected = false;
+        if ((currentAudioState.getSupportedRouteMask() & CallAudioState.ROUTE_SPEAKER) == 0) {
+          speakerSupported = false;
+        } else {
+          if (currentAudioState.getRoute() == CallAudioState.ROUTE_SPEAKER) {
+            speakerSelected = true;
+          }
+          supportedRoutes++;
+        }
+
+        boolean wiredHeadsetSupported = true;
+        boolean wiredHeadsetSelected = false;
+        if ((currentAudioState.getSupportedRouteMask() & CallAudioState.ROUTE_WIRED_HEADSET) == 0) {
+          wiredHeadsetSupported = false;
+        } else {
+          if (currentAudioState.getRoute() == CallAudioState.ROUTE_WIRED_HEADSET) {
+            wiredHeadsetSelected = true;
+          }
+          supportedRoutes++;
+        }
+
+        boolean earPieceSupported = true;
+        boolean earPieceSelected = false;
+        if ((currentAudioState.getSupportedRouteMask() & CallAudioState.ROUTE_EARPIECE) == 0) {
+          earPieceSupported = false;
+        } else {
+          if (currentAudioState.getRoute() == CallAudioState.ROUTE_EARPIECE) {
+            earPieceSelected = true;
+          }
+          supportedRoutes++;
+        }
+
+        // auto switch routes if we have only 2
+        if (supportedRoutes < 3) {
+          if (bluetoothSupported) {
+            if (!bluetoothSelected) {
+              onAudioRouteSelected(CallAudioState.ROUTE_BLUETOOTH);
+              return;
+            }
+          }
+
+          if (speakerSupported) {
+            if (!speakerSelected) {
+              onAudioRouteSelected(CallAudioState.ROUTE_SPEAKER);
+              return;
+            }
+          }
+
+          if (wiredHeadsetSupported) {
+            if (!wiredHeadsetSelected) {
+              onAudioRouteSelected(CallAudioState.ROUTE_WIRED_HEADSET);
+              return;
+            }
+          }
+
+          if (earPieceSupported) {
+            if (!earPieceSelected) {
+              onAudioRouteSelected(CallAudioState.ROUTE_EARPIECE);
+              return;
+            }
+          }
+        } else {
+          AudioRouteSelectorDialogFragment.newInstance(currentAudioState)
+                  .show(getChildFragmentManager(), null);
+        }
       }
     };
 
