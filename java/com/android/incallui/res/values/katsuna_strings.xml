@@ -1,12 +1,28 @@
 <resources>
+    <!-- calling label at incoming call activity -->
     <string name="calling">Calling</string>
+
+    <!-- silence button at incoming call activity -->
     <string name="silence">Silence</string>
-    <string name="bluetooth">Bluetooth</string>
+
+    <!-- label for mute button at incall activity -->
     <string name="mute">Mute</string>
+
+    <!-- label for hold call button at incall activity -->
     <string name="hold_call">Hold Call</string>
+
+    <!-- label for message send button at incoming call activity -->
     <string name="send_message">Send message</string>
+
+    <!-- label for dialpad button at incall activity -->
     <string name="dialpad">Dialpad</string>
+
+    <!-- label for decline button at incoming call activity -->
     <string name="decline">Decline</string>
+
+    <!-- label for endcall button at incall activity -->
     <string name="end_call">End Call</string>
+
+    <!-- label for answer button at incoming call activity -->
     <string name="answer">Answer</string>
 </resources>
