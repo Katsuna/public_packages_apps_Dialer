@@ -2,10 +2,10 @@
     <!-- calling label at incoming call activity -->
     <string name="calling">Calling</string>
 
-    <!-- silence button at incoming call activity -->
+    <!-- label for silence button at incoming call activity. Used for turning ringing sound off during incoming call -->
     <string name="silence">Silence</string>
 
-    <!-- label for mute button at incall activity -->
+    <!-- label for mute button at incall activity. Used for muting the microphone during a call. -->
     <string name="mute">Mute</string>
 
     <!-- label for hold call button at incall activity -->
